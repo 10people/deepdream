@@ -16,12 +16,13 @@
 
 
 # imports and basic notebook setup
-from cStringIO import StringIO
+from io import StringIO
 import numpy as np
 import scipy.ndimage as nd
 import PIL.Image
 import IPython
 from IPython.display import clear_output, Image, display
+from IPython import InteractiveShell as get_ipython
 from google.protobuf import text_format
 
 import caffe
@@ -32,11 +33,11 @@ import caffe
 # caffe.set_mode_gpu()
 # caffe.set_device(0) # select GPU device if multiple devices exist
 
-def showarray(a, fmt='jpeg'):
+def showarray(a, f, fmt='jpeg'):
     a = np.uint8(np.clip(a, 0, 255))
-    f = StringIO()
+    f = "Generated/" + f + ".jpg"
     PIL.Image.fromarray(a).save(f, fmt)
-    display(Image(data=f.getvalue()))
+    # display(Image(data=f))
 
 
 # ## Loading DNN model
@@ -46,10 +47,10 @@ def showarray(a, fmt='jpeg'):
 # In[3]:
 
 
-model_path = 'E:/caffe_prebuilt/models/'  # substitute your path here
+model_path = 'D:/Repos/deepdream/frames/'  # substitute your path here
 model_name = 'bvlc_googlenet'
 net_fn = model_path + model_name + '/deploy.prototxt'
-param_fn = model_path + model_name + '/bvlc_googlenet.caffemodel'
+param_fn = model_path + model_name + '/' + model_name + '.caffemodel'
 
 # Patching model to be able to compute gradients.
 # Note that you can also manually add "force_backward: true" line to "deploy.prototxt".
@@ -111,7 +112,6 @@ def make_step(net, step_size=1.5, end='inception_4c/output',
         bias = net.transformer.mean['data']
         src.data[:] = np.clip(src.data, -bias, 255 - bias)
 
-
         # Next we implement an ascent through different scales. We call these scales "octaves".
 
 
@@ -122,7 +122,7 @@ def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4,
               end='inception_4c/output', clip=True, **step_params):
     # prepare base images for all octaves
     octaves = [preprocess(net, base_img)]
-    for i in xrange(octave_n - 1):
+    for i in range(octave_n - 1):
         octaves.append(nd.zoom(octaves[-1], (1, 1.0 / octave_scale, 1.0 / octave_scale), order=1))
 
     src = net.blobs['data']
@@ -136,15 +136,16 @@ def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4,
 
         src.reshape(1, 3, h, w)  # resize the network's input image size
         src.data[0] = octave_base + detail
-        for i in xrange(iter_n):
+        for i in range(iter_n):
             make_step(net, end=end, clip=clip, **step_params)
 
             # visualization
             vis = deprocess(net, src.data[0])
             if not clip:  # adjust image contrast if clipping is disabled
                 vis = vis * (255.0 / np.percentile(vis, 99.98))
-            showarray(vis)
-            print octave, i, end, vis.shape
+            print(octave, i, end, vis.shape)
+            fileName = str(octave) + str(i) + end.replace("/", "-") + str(vis.shape)
+            showarray(vis, fileName)
             clear_output(wait=True)
 
         # extract details produced on the current octave
@@ -159,7 +160,7 @@ def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4,
 
 
 img = np.float32(PIL.Image.open('1.jpg'))
-showarray(img)
+showarray(img, "1")
 
 # Running the next code cell starts the detail generation process. You may see how new patterns start to form, iteration by iteration, octave by octave.
 
@@ -189,7 +190,7 @@ net.blobs.keys()
 # In[ ]:
 
 
-IPython.get_ipython().system(u'mkdir frames')
+get_ipython().system(u'mkdir frames')
 frame = img
 frame_i = 0
 
@@ -198,8 +199,9 @@ frame_i = 0
 
 h, w = frame.shape[:2]
 s = 0.05  # scale coefficient
-for i in xrange(30):
+for i in range(30):
     frame = deepdream(net, frame)
+    print("save result: " + str(frame_i))
     PIL.Image.fromarray(np.uint8(frame)).save("frames/" + model_name + "/%04d.jpg" % frame_i)
     frame = nd.affine_transform(frame, [1 - s, 1 - s, 1], [h * s / 2, w * s / 2, 0], order=1)
     frame_i += 1
@@ -219,7 +221,7 @@ Image(filename='frames/' + model_name + '/0029.jpg')
 
 
 guide = np.float32(PIL.Image.open('2.jpg'))
-showarray(guide)
+showarray(guide, "2")
 
 # Note that the neural network we use was trained on images downscaled to 224x224 size. So high resolution images might have to be downscaled, so that the network could pick up their features. The image we use here is already small enough.
 # 
@@ -253,6 +255,5 @@ def objective_guide(dst):
 
 
 _ = deepdream(net, img, end=end, objective=objective_guide)
-
 
 # This way we can affect the style of generated images without using a different training set.
